@@ -1,0 +1,12 @@
+[
+  {"sourceId":"return-policy","title":"Chính sách đổi trả mẫu","content":"Đây là dữ liệu MẪU. Cửa hàng demo tiếp nhận yêu cầu đổi trả trong vòng 7 ngày kể từ khi nhận hàng nếu sản phẩm chưa sử dụng và còn nhãn. Khách liên hệ bộ phận hỗ trợ để được kiểm tra điều kiện."},
+  {"sourceId":"shipping-policy","title":"Chính sách vận chuyển mẫu","content":"Đây là dữ liệu MẪU. Đơn hàng được xử lý trong 1 đến 2 ngày làm việc. Thời gian giao hàng dự kiến 3 đến 5 ngày làm việc, tùy địa chỉ nhận."},
+  {"sourceId":"payment-methods","title":"Phương thức thanh toán mẫu","content":"Đây là dữ liệu MẪU. Hệ thống demo chỉ ghi nhận đơn hàng và chưa tích hợp cổng thanh toán thực tế. Không khẳng định đã thanh toán khi đơn hàng được tạo."},
+  {"sourceId":"how-to-buy","title":"Hướng dẫn đặt hàng","content":"Khách xem sản phẩm, chọn số lượng, nhập họ tên, số điện thoại và địa chỉ rồi gửi yêu cầu đặt hàng. Hệ thống kiểm tra sản phẩm và tồn kho trước khi xác nhận đơn."},
+  {"sourceId":"cancel-policy","title":"Chính sách hủy đơn mẫu","content":"Trong phiên bản demo, khách có thể yêu cầu hủy đơn đã được xác nhận. Đơn đang xử lý hoặc bị từ chối chưa được hỗ trợ hủy."},
+  {"sourceId":"warranty","title":"Bảo hành mẫu","content":"Đây là dữ liệu MẪU. Điều kiện bảo hành phụ thuộc từng mặt hàng. Khách nên tham khảo chứng từ và thông tin bảo hành cụ thể của sản phẩm."},
+  {"sourceId":"support","title":"Liên hệ chăm sóc khách hàng mẫu","content":"Đây là dữ liệu MẪU. Khách có thể liên hệ bộ phận chăm sóc khách hàng thông qua kênh hỗ trợ do cửa hàng công bố. Không cung cấp số điện thoại giả."},
+  {"sourceId":"product-guide","title":"Tư vấn lựa chọn sản phẩm","content":"Khách có thể hỏi trợ lý AI về mô tả, chất liệu và danh mục sản phẩm đã đăng bán. Giá hiện tại và tồn kho cần kiểm tra trực tiếp ở trang sản phẩm; trợ lý không cam kết các thông tin này."},
+  {"sourceId":"personal-info","title":"Thông tin giao hàng mẫu","content":"Trong demo, thông tin họ tên, số điện thoại, địa chỉ được gửi đến dịch vụ đơn hàng để liên hệ giao hàng. Trợ lý AI không có quyền đọc hay xem thông tin đơn hàng."},
+  {"sourceId":"availability","title":"Kiểm tra hàng còn bán","content":"Khách cần xem số lượng có thể bán tại Catalog và xác nhận bằng bước giữ hàng khi đặt đơn. Trợ lý AI không dùng tri thức đã lập chỉ mục để khẳng định sản phẩm còn hàng."}
+]
