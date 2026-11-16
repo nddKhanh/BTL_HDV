@@ -1,0 +1,60 @@
+name: Catalog Service CI
+
+on:
+  push:
+    paths:
+      - "catalog-service/**"
+      - ".github/workflows/catalog-ci.yml"
+  pull_request:
+    paths:
+      - "catalog-service/**"
+      - ".github/workflows/catalog-ci.yml"
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      catalog-db:
+        image: postgres:16
+        env:
+          POSTGRES_DB: catalog_db
+          POSTGRES_USER: catalog
+          POSTGRES_PASSWORD: ci_catalog_pass
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd="pg_isready -U catalog -d catalog_db"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=15
+
+    defaults:
+      run:
+        working-directory: catalog-service
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "21"
+          cache: "maven"
+          cache-dependency-path: "catalog-service/pom.xml"
+
+      - name: Package and run tests with Maven
+        env:
+          CATALOG_DB_USER: catalog
+          CATALOG_DB_PASSWORD: ci_catalog_pass
+          CATALOG_JDBC_URL: jdbc:postgresql://localhost:5433/catalog_db
+          INTERNAL_API_KEY: ci_internal_secret_key_2026
+          ADMIN_API_KEY: ci_admin_secret_key_2026
+        run: |
+          chmod +x ./mvnw
+          ./mvnw -B clean package
+
+      - name: Build Docker image (JVM fast-jar)
+        run: docker build -t catalog-service:ci .
