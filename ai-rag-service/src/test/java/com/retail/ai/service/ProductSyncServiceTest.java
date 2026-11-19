@@ -3,12 +3,15 @@ package com.retail.ai.service;
 import com.retail.ai.client.CatalogAiClient;
 import com.retail.ai.dto.ProductFeedResponse;
 import com.retail.ai.dto.ProductFeedResponse.ProductKnowledgeDto;
+import com.retail.ai.entity.KnowledgeDocument;
 import com.retail.ai.repository.KnowledgeDocumentRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -89,5 +92,47 @@ class ProductSyncServiceTest {
 
         IllegalStateException ex = assertThrows(IllegalStateException.class, () -> service.fetchAll());
         assertTrue(ex.getMessage().contains("duplicate product"));
+    }
+
+    @Test
+    void sync_deletesRemovedProductsAndUpsertsCurrent() {
+        KnowledgeDocument existingDoc = new KnowledgeDocument();
+        existingDoc.id = UUID.randomUUID();
+        existingDoc.sourceType = "PRODUCT";
+        existingDoc.sourceId = "1111";
+        existingDoc.title = "Áo thun cũ";
+        existingDoc.content = "Nội dung cũ";
+
+        KnowledgeDocument obsoleteDoc = new KnowledgeDocument();
+        obsoleteDoc.id = UUID.randomUUID();
+        obsoleteDoc.sourceType = "PRODUCT";
+        obsoleteDoc.sourceId = "9999";
+        obsoleteDoc.title = "Sách ngừng bán";
+        obsoleteDoc.content = "Không còn bán";
+
+        when(documents.list("sourceType", "PRODUCT")).thenReturn(List.of(existingDoc, obsoleteDoc));
+        when(documents.bySource("PRODUCT", "1111")).thenReturn(existingDoc);
+        when(documents.bySource("PRODUCT", "2222")).thenReturn(null);
+
+        var p1 = new ProductKnowledgeDto("1111", "TS-01", "Áo thun mới", "100% cotton", "Thời trang");
+        var p2 = new ProductKnowledgeDto("2222", "BP-01", "Balo laptop", "Chống nước", "Phụ kiện");
+
+        service.sync(Map.of("1111", p1, "2222", p2));
+
+        // Obsolete doc 9999 must be deleted
+        verify(documents).delete(obsoleteDoc);
+
+        // Existing doc 1111 must be updated
+        assertEquals("Áo thun mới", existingDoc.title);
+        assertTrue(existingDoc.content.contains("100% cotton"));
+
+        // New doc 2222 must be persisted
+        ArgumentCaptor<KnowledgeDocument> captor = ArgumentCaptor.forClass(KnowledgeDocument.class);
+        verify(documents).persist(captor.capture());
+        KnowledgeDocument createdDoc = captor.getValue();
+        assertEquals("PRODUCT", createdDoc.sourceType);
+        assertEquals("2222", createdDoc.sourceId);
+        assertEquals("Balo laptop", createdDoc.title);
+        assertTrue(createdDoc.content.contains("Chống nước"));
     }
 }
