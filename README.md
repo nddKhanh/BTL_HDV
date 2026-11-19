@@ -1,145 +1,131 @@
-# ai-rag-service — MVP Quarkus + LangChain4j + PostgreSQL/pgvector
+# Đồ án BTL: Hệ thống Thương mại Điện tử Bán lẻ Microservices + Quarkus + AI RAG
 
-> Bản code khởi đầu theo GUIDE_AI_RAG_Service (Contract V1.0). Một AI instance,
-> reindex đồng bộ theo yêu cầu, **không** triển khai đa instance/streaming/realtime sync.
->
-> **Trạng thái xác minh:** đã kiểm tra cấu trúc và cú pháp file tĩnh; chưa chạy `mvn test`
-> hay kiểm thử tích hợp OpenAI/PostgreSQL trong môi trường tạo mã (không có Maven/Docker).
-> Chỉ coi hệ thống là chạy được khi hoàn thành các bước smoke test bên dưới trên máy của bạn.
+> **Đề tài:** Nghiên cứu và phát triển ứng dụng thương mại điện tử bán lẻ với kiến trúc Microservices, ứng dụng framework Quarkus và tích hợp trợ lý AI bằng mô hình RAG (Retrieval-Augmented Generation).
+> 
+> **Kiến trúc:** 3 microservices độc lập viết bằng **Quarkus (Java 21)**, chạy với **3 database PostgreSQL độc lập** và **Docker Compose**. Trao đổi dữ liệu qua REST API theo chuẩn **Contract V1.0**.
 
-## 1. Yêu cầu
+---
 
-- Windows 10 PowerShell, Java **21**, Maven 3.9+, Docker Desktop.
-- Một **OpenAI API key** có quyền truy cập `gpt-4o-mini` (hoặc model cấu hình khác)
-  và `text-embedding-3-small`; đây **không** phải khóa nhận từ gói ChatGPT Plus.
-- Catalog C5 tại `http://localhost:8081` hoặc mock có sẵn tại `demo/mock_catalog.py`.
-- Database riêng `knowledge_db` chạy ở cổng host `5435`; AI service cổng `8083`.
+## 1. Phân công trách nhiệm & Cấu trúc hệ thống
 
-## 2. Bắt đầu trong PowerShell
+Dựa trên tài liệu định hướng kiến trúc `DINH_HUONG_THIET_KE_HE_THONG_MVP.md`:
 
+```
+BTL/
+├── catalog-service/        # Thành viên A: Quản lý danh mục, sản phẩm, tồn kho & báo giá
+├── order-service/          # Thành viên B: Quản lý đơn hàng, guest checkout & xử lý hoàn kho
+├── ai-rag-service/         # Thành viên C: Trợ lý AI RAG giải đáp FAQ & tri thức sản phẩm
+├── compose.yaml            # Docker Compose điều phối toàn bộ 6 container (3 DB + 3 App)
+├── .env.example            # Mẫu biến môi trường dùng chung
+└── .github/workflows/      # CI/CD tự động kiểm thử và đóng gói cho từng service
+```
+
+| Thành viên | Service đảm nhiệm | Database & Port | Nhiệm vụ chính & Hợp đồng sở hữu | Trạng thái |
+|---|---|---|---|---|
+| **A — Catalog** | `catalog-service` | `catalog_db`<br>Host: `:8081` / DB: `:5433` | Quản lý danh mục, sách, báo giá (C1), giữ kho idempotent (C2), xem giữ kho (C3), hoàn kho (C4), xuất feed sản phẩm cho AI (C5). | **Hoàn thành** (Đã merge, có CI) |
+| **B — Order** | `order-service` | `order_db`<br>Host: `:8082` / DB: `:5434` | Guest checkout (P1), tra cứu đơn (P2), hủy đơn (P3), gọi C1/C2/C4 sang Catalog, reconciliation job retry khi timeout. | **Đang hoàn thiện** |
+| **C — AI RAG** | `ai-rag-service` | `knowledge_db` (pgvector)<br>Host: `:8083` / DB: `:5435` | Quản lý FAQ (A2), import sản phẩm active qua C5, chunking, pgvector 1536d (A3), semantic search top-4, sinh câu trả lời có trích dẫn nguồn (A1). | **Hoàn thành** (23 tests PASS, có CI) |
+
+---
+
+## 2. Kiến trúc tổng quan & Luồng tích hợp
+
+```mermaid
+flowchart TB
+    Client[Khách hàng / Swagger UI]
+    Catalog[Catalog Service<br/>:8081]
+    Order[Order Service<br/>:8082]
+    RAG[AI RAG Service<br/>:8083]
+
+    CatalogDB[(Catalog DB<br/>PostgreSQL :5433)]
+    OrderDB[(Order DB<br/>PostgreSQL :5434)]
+    RAGDB[(Knowledge DB<br/>pgvector :5435)]
+    AI[OpenAI API<br/>Embedding + LLM]
+
+    Client -->|Xem danh mục, tìm sản phẩm| Catalog
+    Client -->|Đặt hàng, tra cứu, hủy đơn| Order
+    Client -->|Hỏi đáp tư vấn sản phẩm, FAQ| RAG
+
+    Order -->|C1 Báo giá & C2 Giữ kho| Catalog
+    Order -->|C4 Hoàn kho khi hủy| Catalog
+    RAG -->|C5 Lấy thông tin sản phẩm active| Catalog
+
+    Catalog --> CatalogDB
+    Order --> OrderDB
+    RAG --> RAGDB
+    RAG --> AI
+```
+
+---
+
+## 3. Bảng tổng hợp API Contracts (Contract V1.0)
+
+Mọi API phản hồi đều kèm header `X-Request-Id`. Lỗi chuẩn hóa: `{"error": {"code": "...", "message": "...", "requestId": "..."}}`.
+
+### A. Catalog Service (`:8081`)
+- **Public:** `GET /api/categories`, `GET /api/products` (tìm kiếm, lọc, phân trang).
+- **Admin (`X-Admin-Key`):** CRUD danh mục, CRUD sản phẩm, cập nhật tồn kho.
+- **Internal (`X-Internal-Key`):**
+  - **C1:** `POST /internal/catalog/quote` — Báo giá cho giỏ hàng.
+  - **C2:** `POST /internal/stock/reservations` — Giữ kho theo `orderId` (idempotent, khóa bi quan).
+  - **C3:** `GET /internal/stock/reservations/{orderId}` — Tra cứu trạng thái giữ kho.
+  - **C4:** `POST /internal/stock/reservations/{orderId}/release` — Hoàn kho khi hủy đơn.
+  - **C5:** `GET /internal/ai/products?offset=0&limit=50` — Cung cấp dữ liệu sản phẩm active cho AI RAG.
+
+### B. Order Service (`:8082`)
+- **Public (Xác thực bằng `X-Checkout-Key` ngẫu nhiên cho mỗi đơn):**
+  - **P1:** `POST /api/orders` — Tạo đơn hàng mới (gọi C1 lấy giá -> lưu PENDING -> gọi C2 giữ kho -> CONFIRMED).
+  - **P2:** `GET /api/orders/{id}` — Tra cứu trạng thái đơn hàng.
+  - **P3:** `POST /api/orders/{id}/cancel` — Hủy đơn đã xác nhận (gọi C4 hoàn kho -> CANCELLED).
+
+### C. AI RAG Service (`:8083`)
+- **Public:**
+  - **A1:** `POST /api/chat` — Trợ lý RAG tư vấn (vector search top-4, sinh câu trả lời kèm nguồn `FAQ`/`PRODUCT`, từ chối câu hỏi giá/tồn kho realtime hoặc thiếu ngữ cảnh).
+  - `GET /api/ping` & `GET /q/health` — Kiểm tra liveness và readiness.
+- **Admin (`X-Admin-Key`):**
+  - **A2:** `POST /api/admin/knowledge/documents` — Quản lý tài liệu FAQ và chính sách.
+  - **A3:** `POST /api/admin/knowledge/reindex` — Kích hoạt quét C5 Catalog và tái lập chỉ mục vector pgvector.
+
+---
+
+## 4. Hướng dẫn khởi chạy toàn bộ hệ thống bằng Docker Compose
+
+### Bước 1: Thiết lập cấu hình
 ```powershell
-# Chạy trong thư mục ai-rag-service-mvp
-java -version
-mvn -version
+# Tạo file biến môi trường từ mẫu
 Copy-Item .env.example .env
-notepad .env               # sửa OpenAI key và tất cả replace_...
-. .\demo\load-env.ps1      # dấu chấm + khoảng trắng ở đầu rất quan trọng
-docker compose -f compose.ai-db.yaml up -d
+
+# Sửa các secret và điền OPENAI_API_KEY
+notepad .env
 ```
 
-Nếu Catalog thật **chưa xong**, mở **terminal khác** tại thư mục project:
-
+### Bước 2: Đóng gói các service
 ```powershell
-python .\demo\mock_catalog.py
+# 1. Catalog Service
+cd catalog-service; .\mvnw.cmd clean package -DskipTests; cd ..
+
+# 2. AI RAG Service
+cd ai-rag-service; .\mvnw.cmd clean package -DskipTests; cd ..
+
+# 3. Order Service (khi hoàn thành)
+# cd order-service; .\mvnw.cmd clean package -DskipTests; cd ..
 ```
 
-Sau đó quay lại terminal có biến môi trường:
-
+### Bước 3: Khởi chạy 6 containers
 ```powershell
-mvn quarkus:dev
+docker compose up -d --build
+docker compose ps
 ```
 
-Kiểm tra `http://localhost:8083/q/swagger-ui/` và `http://localhost:8083/q/health`.
+Kiểm tra trạng thái sẵn sàng của các service:
+- Catalog Health: `Invoke-RestMethod http://localhost:8081/q/health`
+- Order Health: `Invoke-RestMethod http://localhost:8082/q/health`
+- AI RAG Health: `Invoke-RestMethod http://localhost:8083/q/health`
 
-Nếu Catalog đã có, **không chạy mock**; để `CATALOG_BASE_URL=http://localhost:8081`
-trỏ đến service thật. C5 chỉ gửi sản phẩm active và không gửi giá/tồn kho.
+---
 
-## 3. Chạy thử end-to-end
+## 5. Kiểm thử độc lập từng service
 
-Trong **terminal PowerShell thứ ba**, load cùng `.env` rồi nạp 10 FAQ mẫu:
-
-```powershell
-. .\demo\load-env.ps1
-.\demo\load-faq.ps1
-.\demo\try-chat.ps1
-```
-
-`try-chat.ps1` làm đúng thứ tự: `POST reindex` rồi `POST /api/chat` 4 lần.
-Kỳ vọng reindex trả `READY`, `documentCount = 12`, `chunkCount >= 12` nếu
-mock C5 có 2 sản phẩm và 10 FAQ; kết quả trả lời còn phụ thuộc model/threshold.
-Tất cả các nội dung chính sách trong `demo/faq-sample.json` **chỉ là ví dụ**
-cho cửa hàng giả lập, cần thay bằng chính sách thật nếu sử dụng ở nơi khác.
-
-### Gọi API thủ công
-
-```powershell
-$headers = @{ 'X-Admin-Key' = $env:ADMIN_API_KEY }
-Invoke-RestMethod -Method Post -Uri http://localhost:8083/api/admin/knowledge/reindex -Headers $headers -ContentType 'application/json' -Body '{}'
-
-$payload = @{ question='Áo thun basic làm bằng chất liệu gì?' } | ConvertTo-Json
-Invoke-RestMethod -Method Post -Uri http://localhost:8083/api/chat -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($payload))
-```
-
-Ví dụ response đúng A1:
-
-```json
-{
-  "answer": "Áo thun basic làm từ cotton 100%.",
-  "grounded": true,
-  "sources": [
-    {"type":"PRODUCT","sourceId":"11111111-1111-4111-8111-111111111111","title":"Áo thun basic"}
-  ]
-}
-```
-
-**Đây là mẫu response kỳ vọng, không phải kết quả chạy đã xác minh.**
-
-## 4. Contract đã triển khai
-
-| API | Chức năng | Header |
-|---|---|---|
-| `POST /api/admin/knowledge/documents` | A2: upsert FAQ, 201/200 SAVED | `X-Admin-Key` |
-| `POST /api/admin/knowledge/reindex` | A3: fetch C5, embed, full rebuild, 200 READY / 503 REINDEX_FAILED | `X-Admin-Key` |
-| `POST /api/chat` | A1: semantic top-4, LLM + sources | không cần |
-| outbound `GET /internal/ai/products` | C5: import active products, pagination | `X-Internal-Key` |
-
-Điều kiện ở bản MVP:
-- Upsert FAQ **không tự động reindex**.
-- Reindex lấy đủ các trang C5 rồi mới sync PRODUCT documents; xóa sản phẩm vắng mặt
-  chỉ sau khi fetch xong. Lỗi trang sau không xóa dữ liệu sản phẩm cũ.
-- Chunks có metadata `sourceType`, `sourceId`, `title`, `documentId`, `chunkIndex`.
-- Tính embedding từng batch trước khi xóa index cũ. Nếu lỗi trong lúc ghi vector,
-  trạng thái `FAILED`, chat trả 503 cho đến khi reindex lại thành công.
-- Extension quản lý bảng `embeddings`; code chỉ làm `DELETE FROM embeddings` (tên bảng
-  cố định và cấu hình rõ ràng), không phụ thuộc tên các cột nội bộ.
-- Một process AI; không hỗ trợ reindex đồng thời trên nhiều instance.
-- `RAG_MIN_SCORE` mặc định 0.65 là giá trị **thử nghiệm**, không phải số đo.
-- Không dùng vector để trả giá/tồn kho hiện tại. Không liên lạc Order Service.
-- `grounded=true` nghĩa là có ngữ cảnh trích xuất được, **không phải** bảo đảm
-  toàn bộ lời LLM đều chính xác; hãy đối chiếu các nguồn khi đánh giá.
-
-## 5. Kiểm thử và ghép vào root Compose
-
-```powershell
-mvn test
-mvn clean package -DskipTests
-```
-
-Đưa `ai-rag-service-mvp/` vào root repo với tên `ai-rag-service/`, giữ Dockerfile
-của project. Trong root compose GUIDE, `build: ./ai-rag-service`, `PORT=8080`,
-`AI_JDBC_URL=jdbc:postgresql://ai-db:5432/knowledge_db`,
-`CATALOG_BASE_URL=http://catalog-service:8080` và map `8083:8080`.
-**Không chạy đồng thời** `compose.ai-db.yaml` và `ai-db` trong root Compose trên
-cùng host port 5435.
-
-### Smoke test bắt buộc trước khi chốt MVP
-
-1. Gọi FAQ create hai lần cùng `sourceId`: lần đầu 201, lần sau 200;
-   sửa content và reindex để chatbot thấy nội dung mới.
-2. Chạy reindex hai lần: số chunk không tăng vô hạn; trả `READY`.
-3. Hỏi về sản phẩm từ C5: trả `grounded=true` và `sources.type=PRODUCT` hợp lệ.
-4. Hỏi về FAQ: nguồn là `FAQ`; hỏi giá hoặc tồn kho: không cam kết dữ liệu realtime.
-5. Tắt mock Catalog và reindex: `503 REINDEX_FAILED`; khởi động lại và reindex:
-   `READY` trở lại. Không xóa PRODUCT documents chỉ vì fetch thất bại.
-6. Tắt OpenAI API: `503 AI_UNAVAILABLE` khi chat; không được báo câu trả lời thành công.
-7. Restart Quarkus + DB (không xóa volume): FAQ, vector vẫn tồn tại, chat vẫn dùng được
-   nếu lần reindex trước đã hoàn thành.
-
-## 6. Nguồn kỹ thuật
-
-- https://docs.quarkiverse.io/quarkus-langchain4j/dev/rag-pgvector-store.html
-- https://docs.quarkiverse.io/quarkus-langchain4j/dev/openai-chat-model.html
-- https://docs.quarkiverse.io/quarkus-langchain4j/dev/quickstart-rag.html
-- https://quarkus.io/guides/rest-client
-
-Pinned Quarkus Platform 3.40.1.1 + cùng phiên bản LangChain4j platform BOM; Java 21.
+Mỗi service đều có thể chạy và kiểm thử độc lập mà không cần chờ các service khác:
+- **`catalog-service`:** Xem chi tiết tại [catalog-service/README.md](file:///D:/University/5/HDV/BTL/catalog-service/README.md) (`.\mvnw.cmd test`).
+- **`ai-rag-service`:** Xem chi tiết tại [ai-rag-service/README.md](file:///D:/University/5/HDV/BTL/ai-rag-service/README.md) (`.\mvnw.cmd test` - 23 unit tests).

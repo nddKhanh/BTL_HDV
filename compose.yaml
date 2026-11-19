@@ -1,0 +1,89 @@
+services:
+  catalog-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: catalog_db
+      POSTGRES_USER: catalog
+      POSTGRES_PASSWORD: ${CATALOG_DB_PASSWORD}
+    ports: ["127.0.0.1:5433:5432"]
+    volumes: ["catalog-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U catalog -d catalog_db"]
+      interval: 5s
+      retries: 15
+
+  order-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: order_db
+      POSTGRES_USER: orders
+      POSTGRES_PASSWORD: ${ORDER_DB_PASSWORD}
+    ports: ["127.0.0.1:5434:5432"]
+    volumes: ["order-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orders -d order_db"]
+      interval: 5s
+      retries: 15
+
+  ai-db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: knowledge_db
+      POSTGRES_USER: knowledge
+      POSTGRES_PASSWORD: ${AI_DB_PASSWORD}
+    ports: ["127.0.0.1:5435:5432"]
+    volumes: ["ai-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U knowledge -d knowledge_db"]
+      interval: 5s
+      retries: 15
+
+  catalog-service:
+    build: ./catalog-service
+    ports: ["8081:8080"]
+    environment:
+      PORT: "8080"
+      CATALOG_DB_USER: catalog
+      CATALOG_DB_PASSWORD: ${CATALOG_DB_PASSWORD}
+      CATALOG_JDBC_URL: jdbc:postgresql://catalog-db:5432/catalog_db
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      ADMIN_API_KEY: ${ADMIN_API_KEY}
+    depends_on:
+      catalog-db: {condition: service_healthy}
+
+  order-service:
+    build: ./order-service
+    ports: ["8082:8080"]
+    environment:
+      PORT: "8080"
+      ORDER_DB_USER: orders
+      ORDER_DB_PASSWORD: ${ORDER_DB_PASSWORD}
+      ORDER_JDBC_URL: jdbc:postgresql://order-db:5432/order_db
+      CATALOG_BASE_URL: http://catalog-service:8080
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+    depends_on:
+      order-db: {condition: service_healthy}
+      catalog-service: {condition: service_started}
+
+  ai-rag-service:
+    build: ./ai-rag-service
+    ports: ["8083:8080"]
+    environment:
+      PORT: "8080"
+      AI_DB_USER: knowledge
+      AI_DB_PASSWORD: ${AI_DB_PASSWORD}
+      AI_JDBC_URL: jdbc:postgresql://ai-db:5432/knowledge_db
+      CATALOG_BASE_URL: http://catalog-service:8080
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      ADMIN_API_KEY: ${ADMIN_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-gpt-4o-mini}
+      OPENAI_EMBEDDING_MODEL: text-embedding-3-small
+    depends_on:
+      ai-db: {condition: service_healthy}
+      catalog-service: {condition: service_started}
+
+volumes:
+  catalog-data:
+  order-data:
+  ai-data:
