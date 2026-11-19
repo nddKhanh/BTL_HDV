@@ -1,9 +1,12 @@
 package com.retail.ai.service;
 
+import com.retail.ai.dto.ChatResponse;
 import com.retail.ai.exception.ApiProblem;
 import dev.langchain4j.model.chat.ChatModel;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -49,5 +52,29 @@ class AnswerServiceTest {
         assertEquals(503, ex.status);
         assertEquals("AI_UNAVAILABLE", ex.code);
         assertTrue(ex.getMessage().contains("not READY"));
+    }
+
+    @Test
+    void answer_abstainsImmediatelyOnPriceAndStockKeywords() {
+        when(state.ready()).thenReturn(true);
+
+        List<String> priceStockQueries = List.of(
+                "Áo thun giá bao nhiêu?",
+                "Sản phẩm này bao nhiêu tiền?",
+                "Giá hiện tại của balo?",
+                "Cửa hàng còn hàng không?",
+                "Tồn kho áo thun còn bao nhiêu?",
+                "Còn mấy cái balo?"
+        );
+
+        for (String q : priceStockQueries) {
+            ChatResponse resp = service.answer(q);
+            assertFalse(resp.grounded(), "Should not be grounded for query: " + q);
+            assertTrue(resp.sources().isEmpty());
+            assertTrue(resp.answer().contains("Tôi chưa tìm thấy thông tin phù hợp"));
+        }
+
+        verifyNoInteractions(retrieval);
+        verifyNoInteractions(model);
     }
 }
