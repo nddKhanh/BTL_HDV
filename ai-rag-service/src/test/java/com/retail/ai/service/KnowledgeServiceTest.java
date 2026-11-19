@@ -2,6 +2,7 @@ package com.retail.ai.service;
 
 import com.retail.ai.dto.KnowledgeDocumentRequest;
 import com.retail.ai.entity.KnowledgeDocument;
+import com.retail.ai.exception.ApiProblem;
 import com.retail.ai.repository.KnowledgeDocumentRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -73,5 +74,60 @@ class KnowledgeServiceTest {
         assertEquals("Tiêu đề mới", existing.title);
         assertEquals("Nội dung mới", existing.content);
         verify(documents, never()).persist(any(KnowledgeDocument.class));
+    }
+
+    @Test
+    void saveFaq_throwsWhenRequestIsNull() {
+        ApiProblem ex = assertThrows(ApiProblem.class, () -> service.saveFaq(null));
+        assertEquals(422, ex.status);
+        assertEquals("INVALID_DOCUMENT", ex.code);
+    }
+
+    @Test
+    void saveFaq_throwsWhenSourceIdIsBlankOrTooLong() {
+        ApiProblem ex1 = assertThrows(ApiProblem.class, () ->
+                service.saveFaq(new KnowledgeDocumentRequest("   ", "Tiêu đề", "Nội dung")));
+        assertEquals(422, ex1.status);
+
+        String tooLong = "a".repeat(121);
+        ApiProblem ex2 = assertThrows(ApiProblem.class, () ->
+                service.saveFaq(new KnowledgeDocumentRequest(tooLong, "Tiêu đề", "Nội dung")));
+        assertEquals(422, ex2.status);
+    }
+
+    @Test
+    void saveFaq_throwsWhenTitleIsBlankOrTooLong() {
+        ApiProblem ex1 = assertThrows(ApiProblem.class, () ->
+                service.saveFaq(new KnowledgeDocumentRequest("id-1", "", "Nội dung")));
+        assertEquals(422, ex1.status);
+
+        String tooLong = "t".repeat(241);
+        ApiProblem ex2 = assertThrows(ApiProblem.class, () ->
+                service.saveFaq(new KnowledgeDocumentRequest("id-1", tooLong, "Nội dung")));
+        assertEquals(422, ex2.status);
+    }
+
+    @Test
+    void saveFaq_throwsWhenContentIsBlankOrTooLong() {
+        ApiProblem ex1 = assertThrows(ApiProblem.class, () ->
+                service.saveFaq(new KnowledgeDocumentRequest("id-1", "Tiêu đề", "   ")));
+        assertEquals(422, ex1.status);
+
+        String tooLong = "c".repeat(10_001);
+        ApiProblem ex2 = assertThrows(ApiProblem.class, () ->
+                service.saveFaq(new KnowledgeDocumentRequest("id-1", "Tiêu đề", tooLong)));
+        assertEquals(422, ex2.status);
+    }
+
+    @Test
+    void saveFaq_rejectsScriptTagInContent() {
+        KnowledgeDocumentRequest request = new KnowledgeDocumentRequest(
+                "script-id",
+                "Hack",
+                "Chính sách <script>alert('xss')</script>"
+        );
+        ApiProblem ex = assertThrows(ApiProblem.class, () -> service.saveFaq(request));
+        assertEquals(422, ex.status);
+        assertTrue(ex.getMessage().contains("Only plain text knowledge is accepted"));
     }
 }
