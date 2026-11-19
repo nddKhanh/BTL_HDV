@@ -7,6 +7,7 @@ import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.container.ContainerRequestFilter;
 import jakarta.ws.rs.container.ContainerResponseContext;
 import jakarta.ws.rs.container.ContainerResponseFilter;
+import jakarta.ws.rs.container.PreMatching;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.ext.Provider;
@@ -17,6 +18,7 @@ import java.util.Map;
 import java.util.UUID;
 
 @Provider
+@PreMatching
 @Priority(Priorities.AUTHENTICATION)
 public class RequestContextFilter implements ContainerRequestFilter, ContainerResponseFilter {
     public static final String REQUEST_ID = "requestId";
@@ -34,9 +36,12 @@ public class RequestContextFilter implements ContainerRequestFilter, ContainerRe
         requestIdHolder.value = requestId;
 
         String path = request.getUriInfo().getPath();
-        if (path.startsWith("api/admin/") && !sameSecret(adminKey, request.getHeaderString("X-Admin-Key"))) {
+        if (path == null) path = "";
+        while (path.startsWith("/")) path = path.substring(1);
+
+        if ((path.equals("api/admin") || path.startsWith("api/admin/")) && !sameSecret(adminKey, request.getHeaderString("X-Admin-Key"))) {
             reject(request, requestId);
-        } else if (path.startsWith("internal/") && !sameSecret(internalKey, request.getHeaderString("X-Internal-Key"))) {
+        } else if ((path.equals("internal") || path.startsWith("internal/")) && !sameSecret(internalKey, request.getHeaderString("X-Internal-Key"))) {
             reject(request, requestId);
         }
     }
