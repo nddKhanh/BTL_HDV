@@ -1,0 +1,8 @@
+CREATE TABLE shipments (
+  order_id UUID PRIMARY KEY,
+  tracking_code VARCHAR(48) NOT NULL UNIQUE,
+  address TEXT NOT NULL,
+  status VARCHAR(20) NOT NULL CHECK (status IN ('CREATED','SHIPPED','DELIVERED','CANCELLED')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

@@ -38,6 +38,45 @@ services:
       interval: 5s
       retries: 15
 
+  payment-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: payment_db
+      POSTGRES_USER: payments
+      POSTGRES_PASSWORD: ${PAYMENT_DB_PASSWORD}
+    ports: ["127.0.0.1:5436:5432"]
+    volumes: ["payment-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U payments -d payment_db"]
+      interval: 5s
+      retries: 15
+
+  shipping-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: shipping_db
+      POSTGRES_USER: shipping
+      POSTGRES_PASSWORD: ${SHIPPING_DB_PASSWORD}
+    ports: ["127.0.0.1:5437:5432"]
+    volumes: ["shipping-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shipping -d shipping_db"]
+      interval: 5s
+      retries: 15
+
+  notification-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: notification_db
+      POSTGRES_USER: notifications
+      POSTGRES_PASSWORD: ${NOTIFICATION_DB_PASSWORD}
+    ports: ["127.0.0.1:5438:5432"]
+    volumes: ["notification-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U notifications -d notification_db"]
+      interval: 5s
+      retries: 15
+
   catalog-service:
     build: ./catalog-service
     ports: ["8081:8080"]
@@ -60,10 +99,52 @@ services:
       ORDER_DB_PASSWORD: ${ORDER_DB_PASSWORD}
       ORDER_JDBC_URL: jdbc:postgresql://order-db:5432/order_db
       CATALOG_BASE_URL: http://catalog-service:8080
+      PAYMENT_BASE_URL: http://payment-service:8080
+      SHIPPING_BASE_URL: http://shipping-service:8080
+      NOTIFICATION_BASE_URL: http://notification-service:8080
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
     depends_on:
       order-db: {condition: service_healthy}
       catalog-service: {condition: service_started}
+      payment-service: {condition: service_started}
+      shipping-service: {condition: service_started}
+      notification-service: {condition: service_started}
+
+  payment-service:
+    build: ./payment-service
+    ports: ["8084:8080"]
+    environment:
+      PORT: "8080"
+      PAYMENT_DB_USER: payments
+      PAYMENT_DB_PASSWORD: ${PAYMENT_DB_PASSWORD}
+      PAYMENT_JDBC_URL: jdbc:postgresql://payment-db:5432/payment_db
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+    depends_on:
+      payment-db: {condition: service_healthy}
+
+  shipping-service:
+    build: ./shipping-service
+    ports: ["8085:8080"]
+    environment:
+      PORT: "8080"
+      SHIPPING_DB_USER: shipping
+      SHIPPING_DB_PASSWORD: ${SHIPPING_DB_PASSWORD}
+      SHIPPING_JDBC_URL: jdbc:postgresql://shipping-db:5432/shipping_db
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+    depends_on:
+      shipping-db: {condition: service_healthy}
+
+  notification-service:
+    build: ./notification-service
+    ports: ["8086:8080"]
+    environment:
+      PORT: "8080"
+      NOTIFICATION_DB_USER: notifications
+      NOTIFICATION_DB_PASSWORD: ${NOTIFICATION_DB_PASSWORD}
+      NOTIFICATION_JDBC_URL: jdbc:postgresql://notification-db:5432/notification_db
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+    depends_on:
+      notification-db: {condition: service_healthy}
 
   ai-rag-service:
     build: ./ai-rag-service
@@ -76,9 +157,9 @@ services:
       CATALOG_BASE_URL: http://catalog-service:8080
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
       ADMIN_API_KEY: ${ADMIN_API_KEY}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-gpt-4o-mini}
-      OPENAI_EMBEDDING_MODEL: text-embedding-3-small
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_CHAT_MODEL: ${GEMINI_CHAT_MODEL:-gemini-2.5-flash}
+      GEMINI_EMBEDDING_MODEL: ${GEMINI_EMBEDDING_MODEL:-text-embedding-004}
     depends_on:
       ai-db: {condition: service_healthy}
       catalog-service: {condition: service_started}
@@ -87,3 +168,6 @@ volumes:
   catalog-data:
   order-data:
   ai-data:
+  payment-data:
+  shipping-data:
+  notification-data:

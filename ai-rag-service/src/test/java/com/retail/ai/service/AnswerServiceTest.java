@@ -178,7 +178,7 @@ class AnswerServiceTest {
         when(retrieval.search(any())).thenReturn(List.of(new EmbeddingMatch<>(0.7, "id1", null, seg)));
 
         when(model.chat(any(SystemMessage.class), any(UserMessage.class)))
-                .thenThrow(new RuntimeException("OpenAI quota exceeded"));
+                .thenThrow(new RuntimeException("Gemini quota exceeded"));
 
         ApiProblem ex = assertThrows(ApiProblem.class, () -> service.answer("Hỏi gì đó?"));
         assertEquals(503, ex.status);

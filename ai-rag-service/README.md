@@ -11,7 +11,7 @@
 
 - Windows 10/11 PowerShell, Java **21** (Temurin/Oracle JDK 21), Docker Desktop (khi chạy container/compose).
 - Maven Wrapper đã tích hợp sẵn trong repo (`mvnw` / `mvnw.cmd`), **không cần cài đặt Maven toàn cục**.
-- OpenAI API key có quyền truy cập model chat (mặc định `gpt-4o-mini`) và model embedding (`text-embedding-3-small`, 1536 chiều).
+- Gemini API key có quyền truy cập model chat (mặc định `gemini-2.5-flash`) và model embedding (`text-embedding-004`, 768 chiều).
 - Catalog C5 tại `http://localhost:8081` hoặc stub có sẵn tại `demo/mock_catalog.py`.
 - Database riêng `knowledge_db` chạy ở cổng host `5435`; AI service chạy ở cổng `8083`.
 
@@ -23,7 +23,7 @@
 ```powershell
 cd ai-rag-service
 Copy-Item .env.example .env
-# Chỉnh sửa OPENAI_API_KEY và các mật khẩu trong file .env
+# Chỉnh sửa GEMINI_API_KEY và các mật khẩu trong file .env
 notepad .env
 
 # Load biến môi trường vào session PowerShell hiện tại (lưu ý dấu chấm và khoảng trắng)
@@ -92,7 +92,7 @@ Tất cả các response trả về đều có header `X-Request-Id`. Lỗi chu�
 ## 5. Kiểm thử & Đóng gói
 
 ### Chạy Unit Test suite
-Service đi kèm bộ **23 unit tests** độc lập, kiểm tra toàn diện nghiệp vụ mà không cần bật database hay tài khoản OpenAI thật:
+Service đi kèm bộ **23 unit tests** độc lập, kiểm tra toàn diện nghiệp vụ mà không cần bật database hay Gemini API key thật:
 ```powershell
 .\mvnw.cmd test
 ```

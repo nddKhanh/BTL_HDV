@@ -1,0 +1,43 @@
+name: Commerce E2E
+
+on:
+  push:
+    paths: ['catalog-service/**', 'order-service/**', 'payment-service/**', 'shipping-service/**', 'notification-service/**', 'compose.yaml', 'scripts/e2e/commerce-flow.sh', '.github/workflows/e2e-commerce.yml']
+  pull_request:
+    paths: ['catalog-service/**', 'order-service/**', 'payment-service/**', 'shipping-service/**', 'notification-service/**', 'compose.yaml', 'scripts/e2e/commerce-flow.sh', '.github/workflows/e2e-commerce.yml']
+
+jobs:
+  commerce-flow:
+    runs-on: ubuntu-latest
+    env:
+      CATALOG_DB_PASSWORD: ci_catalog_pass
+      ORDER_DB_PASSWORD: ci_order_pass
+      AI_DB_PASSWORD: ci_ai_pass
+      PAYMENT_DB_PASSWORD: ci_payment_pass
+      SHIPPING_DB_PASSWORD: ci_shipping_pass
+      NOTIFICATION_DB_PASSWORD: ci_notification_pass
+      INTERNAL_API_KEY: ci_internal_key_2026
+      ADMIN_API_KEY: ci_admin_key_2026
+      GEMINI_API_KEY: ci_not_used
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Package services
+        run: |
+          for service in catalog-service order-service ai-rag-service payment-service shipping-service notification-service; do
+            ./catalog-service/mvnw -B -f "$service/pom.xml" -DskipTests package
+          done
+      - name: Start isolated stack
+        run: docker compose --project-name btl-e2e up -d --build
+      - name: Verify checkout to cancellation
+        run: bash scripts/e2e/commerce-flow.sh
+      - name: Print logs on failure
+        if: failure()
+        run: docker compose --project-name btl-e2e logs --no-color
+      - name: Remove isolated stack
+        if: always()
+        run: docker compose --project-name btl-e2e down -v --remove-orphans

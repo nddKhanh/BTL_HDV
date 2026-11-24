@@ -1,0 +1,24 @@
+package com.retail.payment;
+
+import jakarta.annotation.Priority;
+import jakarta.ws.rs.Priorities;
+import jakarta.ws.rs.container.*;
+import jakarta.ws.rs.core.*;
+import jakarta.ws.rs.ext.Provider;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.*;
+
+@Provider @PreMatching @Priority(Priorities.AUTHENTICATION)
+public class SecurityFilter implements ContainerRequestFilter, ContainerResponseFilter {
+    @ConfigProperty(name = "app.internal-key") String internalKey;
+    @Override public void filter(ContainerRequestContext c) {
+        String id = Optional.ofNullable(c.getHeaderString("X-Request-Id")).filter(v -> !v.isBlank() && v.length() <= 80).orElseGet(() -> UUID.randomUUID().toString());
+        c.setProperty("requestId", id);
+        if (c.getUriInfo().getPath().startsWith("internal") && !MessageDigest.isEqual(internalKey.getBytes(StandardCharsets.UTF_8), Optional.ofNullable(c.getHeaderString("X-Internal-Key")).orElse("").getBytes(StandardCharsets.UTF_8))) {
+            c.abortWith(Response.status(401).type(MediaType.APPLICATION_JSON).entity(Map.of("error", Map.of("code", "UNAUTHORIZED", "message", "Missing or invalid API key", "requestId", id))).build());
+        }
+    }
+    @Override public void filter(ContainerRequestContext c, ContainerResponseContext r) { r.getHeaders().putSingle("X-Request-Id", c.getProperty("requestId")); }
+}

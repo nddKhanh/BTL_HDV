@@ -1,0 +1,38 @@
+name: Catalog AI Contract E2E
+
+on:
+  push:
+    paths: ['catalog-service/**', 'ai-rag-service/**', 'compose.yaml', 'scripts/e2e/catalog-ai-contract.sh', '.github/workflows/e2e-catalog-ai.yml']
+  pull_request:
+    paths: ['catalog-service/**', 'ai-rag-service/**', 'compose.yaml', 'scripts/e2e/catalog-ai-contract.sh', '.github/workflows/e2e-catalog-ai.yml']
+
+jobs:
+  c5-contract:
+    runs-on: ubuntu-latest
+    env:
+      CATALOG_DB_PASSWORD: ci_catalog_pass
+      AI_DB_PASSWORD: ci_ai_pass
+      INTERNAL_API_KEY: ci_internal_key_2026
+      ADMIN_API_KEY: ci_admin_key_2026
+      GEMINI_API_KEY: ci_not_used
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Package Catalog and AI RAG
+        run: |
+          ./catalog-service/mvnw -B -f catalog-service/pom.xml -DskipTests package
+          ./catalog-service/mvnw -B -f ai-rag-service/pom.xml -DskipTests package
+      - name: Start Catalog and AI RAG
+        run: docker compose --project-name btl-c5-e2e up -d --build catalog-db ai-db catalog-service ai-rag-service
+      - name: Verify C5 contract
+        run: bash scripts/e2e/catalog-ai-contract.sh
+      - name: Print logs on failure
+        if: failure()
+        run: docker compose --project-name btl-c5-e2e logs --no-color
+      - name: Remove isolated stack
+        if: always()
+        run: docker compose --project-name btl-c5-e2e down -v --remove-orphans

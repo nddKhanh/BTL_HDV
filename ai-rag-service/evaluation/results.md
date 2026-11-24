@@ -12,8 +12,8 @@ Tài liệu này ghi nhận phương pháp, quy trình và kết quả đánh gi
   - **5 câu ngoài phạm vi / từ chối:** Đánh giá cơ chế guardrail chống hallucination (hỏi giá realtime, tồn kho realtime, mật khẩu quản trị, mặt hàng không bán, tra cứu đơn hàng).
 - **Công cụ chạy tự động:** [evaluate.py](file:///D:/University/5/HDV/BTL/ai-rag-service/evaluation/evaluate.py) hoặc `run-eval.ps1`.
 - **Cấu hình mô hình:**
-  - Embedding: `text-embedding-3-small` (1536 dimensions).
-  - Chat: `gpt-4o-mini` (hoặc model OpenAI tương đương được cấu hình).
+  - Embedding: `text-embedding-004` (768 dimensions).
+  - Chat: `gemini-2.5-flash` (hoặc model Gemini tương đương được cấu hình).
   - Ngưỡng tương đồng tối thiểu: `RAG_MIN_SCORE = 0.65`.
   - Top-k matches: `k = 4`.
 

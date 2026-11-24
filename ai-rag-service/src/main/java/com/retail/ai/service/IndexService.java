@@ -44,7 +44,7 @@ public class IndexService {
                 List<TextSegment> batch = segments.subList(i, Math.min(i + 20, segments.size()));
                 List<Embedding> embedded = embeddingModel.embedAll(batch).content();
                 if (embedded.size() != batch.size()
-                        || embedded.stream().anyMatch(v -> v.vector().length != 1536)) {
+                        || embedded.stream().anyMatch(v -> v.vector().length != 768)) {
                     throw new IllegalStateException("Embedding dimension/count mismatch");
                 }
                 vectors.addAll(embedded);
@@ -53,7 +53,7 @@ public class IndexService {
             // The PGVector extension is configured to own this explicit table name.
             // Whole-table DELETE avoids relying on unsupported EmbeddingStore.removeAll().
             try (Connection conn = dataSource.getConnection(); Statement sql = conn.createStatement()) {
-                sql.executeUpdate("DELETE FROM embeddings");
+                sql.executeUpdate("DELETE FROM embeddings_gemini");
             }
             for (int i = 0; i < vectors.size(); i += 20) {
                 int end = Math.min(i + 20, vectors.size());

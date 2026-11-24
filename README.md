@@ -1,131 +1,78 @@
-# Đồ án BTL: Hệ thống Thương mại Điện tử Bán lẻ Microservices + Quarkus + AI RAG
+# Hệ thống thương mại điện tử bán lẻ Microservices
 
-> **Đề tài:** Nghiên cứu và phát triển ứng dụng thương mại điện tử bán lẻ với kiến trúc Microservices, ứng dụng framework Quarkus và tích hợp trợ lý AI bằng mô hình RAG (Retrieval-Augmented Generation).
-> 
-> **Kiến trúc:** 3 microservices độc lập viết bằng **Quarkus (Java 21)**, chạy với **3 database PostgreSQL độc lập** và **Docker Compose**. Trao đổi dữ liệu qua REST API theo chuẩn **Contract V1.0**.
+Hệ thống gồm sáu microservice Quarkus Java 21 với database PostgreSQL tách biệt.
+Mỗi service sở hữu dữ liệu của mình và chỉ giao tiếp qua REST API.
 
----
+## Kiến trúc
 
-## 1. Phân công trách nhiệm & Cấu trúc hệ thống
+| Service | Cổng | Database | Trách nhiệm |
+|---|---:|---|---|
+| `catalog-service` | 8081 | `catalog_db` / 5433 | Danh mục, sản phẩm, giá và tồn kho. |
+| `order-service` | 8082 | `order_db` / 5434 | Guest checkout và điều phối vòng đời đơn hàng. |
+| `ai-rag-service` | 8083 | `knowledge_db` / 5435 | Hỏi đáp RAG từ FAQ và feed sản phẩm. |
+| `payment-service` | 8084 | `payment_db` / 5436 | Thanh toán mô phỏng, idempotent theo đơn hàng. |
+| `shipping-service` | 8085 | `shipping_db` / 5437 | Shipment và trạng thái giao hàng. |
+| `notification-service` | 8086 | `notification_db` / 5438 | Lưu thông báo mô phỏng theo sự kiện đơn hàng. |
 
-Dựa trên tài liệu định hướng kiến trúc `DINH_HUONG_THIET_KE_HE_THONG_MVP.md`:
-
-```
-BTL/
-├── catalog-service/        # Thành viên A: Quản lý danh mục, sản phẩm, tồn kho & báo giá
-├── order-service/          # Thành viên B: Quản lý đơn hàng, guest checkout & xử lý hoàn kho
-├── ai-rag-service/         # Thành viên C: Trợ lý AI RAG giải đáp FAQ & tri thức sản phẩm
-├── compose.yaml            # Docker Compose điều phối toàn bộ 6 container (3 DB + 3 App)
-├── .env.example            # Mẫu biến môi trường dùng chung
-└── .github/workflows/      # CI/CD tự động kiểm thử và đóng gói cho từng service
-```
-
-| Thành viên | Service đảm nhiệm | Database & Port | Nhiệm vụ chính & Hợp đồng sở hữu | Trạng thái |
-|---|---|---|---|---|
-| **A — Catalog** | `catalog-service` | `catalog_db`<br>Host: `:8081` / DB: `:5433` | Quản lý danh mục, sách, báo giá (C1), giữ kho idempotent (C2), xem giữ kho (C3), hoàn kho (C4), xuất feed sản phẩm cho AI (C5). | **Hoàn thành** (Đã merge, có CI) |
-| **B — Order** | `order-service` | `order_db`<br>Host: `:8082` / DB: `:5434` | Guest checkout (P1), tra cứu đơn (P2), hủy đơn (P3), gọi C1/C2/C4 sang Catalog, reconciliation job retry khi timeout. | **Đang hoàn thiện** |
-| **C — AI RAG** | `ai-rag-service` | `knowledge_db` (pgvector)<br>Host: `:8083` / DB: `:5435` | Quản lý FAQ (A2), import sản phẩm active qua C5, chunking, pgvector 1536d (A3), semantic search top-4, sinh câu trả lời có trích dẫn nguồn (A1). | **Hoàn thành** (23 tests PASS, có CI) |
-
----
-
-## 2. Kiến trúc tổng quan & Luồng tích hợp
+`catalog-service` cũng là Product Service của hệ thống.
+Nó sở hữu sản phẩm, giá và tồn kho nên không có một `product-service` trùng lặp.
 
 ```mermaid
-flowchart TB
-    Client[Khách hàng / Swagger UI]
-    Catalog[Catalog Service<br/>:8081]
-    Order[Order Service<br/>:8082]
-    RAG[AI RAG Service<br/>:8083]
-
-    CatalogDB[(Catalog DB<br/>PostgreSQL :5433)]
-    OrderDB[(Order DB<br/>PostgreSQL :5434)]
-    RAGDB[(Knowledge DB<br/>pgvector :5435)]
-    AI[OpenAI API<br/>Embedding + LLM]
-
-    Client -->|Xem danh mục, tìm sản phẩm| Catalog
-    Client -->|Đặt hàng, tra cứu, hủy đơn| Order
-    Client -->|Hỏi đáp tư vấn sản phẩm, FAQ| RAG
-
-    Order -->|C1 Báo giá & C2 Giữ kho| Catalog
-    Order -->|C4 Hoàn kho khi hủy| Catalog
-    RAG -->|C5 Lấy thông tin sản phẩm active| Catalog
-
-    Catalog --> CatalogDB
-    Order --> OrderDB
-    RAG --> RAGDB
-    RAG --> AI
+flowchart LR
+    Client --> Catalog
+    Client --> Order
+    Client --> RAG
+    Order -->|C1, C2, C4| Catalog
+    Order -->|thanh toán| Payment
+    Order -->|tạo shipment| Shipping
+    Order -->|sự kiện| Notification
+    RAG -->|C5| Catalog
 ```
 
----
+## Vòng đời đơn hàng
 
-## 3. Bảng tổng hợp API Contracts (Contract V1.0)
+1. `POST /api/orders` gửi email, địa chỉ giao hàng và các dòng hàng.
+2. Order lấy báo giá C1, lưu snapshot giá, gọi C2 giữ kho và chuyển đơn sang `CONFIRMED`.
+3. `POST /api/orders/{id}/pay` với `X-Checkout-Key` tạo payment idempotent.
+4. Payment được ủy quyền thì Order chuyển đơn sang `PAID`, tạo shipment và ghi notification.
+5. `POST /api/orders/{id}/cancel` hoàn kho C4.
+   Nếu đơn đã thanh toán, Order chỉ hủy khi shipment còn `CREATED`, sau đó hoàn tiền.
 
-Mọi API phản hồi đều kèm header `X-Request-Id`. Lỗi chuẩn hóa: `{"error": {"code": "...", "message": "...", "requestId": "..."}}`.
+Các service nội bộ dùng `X-Internal-Key`.
+Mọi response đều trả lại `X-Request-Id`.
+`X-Checkout-Key` là capability bí mật của một guest order và chỉ dùng để xem, thanh toán hoặc hủy đúng đơn đó.
 
-### A. Catalog Service (`:8081`)
-- **Public:** `GET /api/categories`, `GET /api/products` (tìm kiếm, lọc, phân trang).
-- **Admin (`X-Admin-Key`):** CRUD danh mục, CRUD sản phẩm, cập nhật tồn kho.
-- **Internal (`X-Internal-Key`):**
-  - **C1:** `POST /internal/catalog/quote` — Báo giá cho giỏ hàng.
-  - **C2:** `POST /internal/stock/reservations` — Giữ kho theo `orderId` (idempotent, khóa bi quan).
-  - **C3:** `GET /internal/stock/reservations/{orderId}` — Tra cứu trạng thái giữ kho.
-  - **C4:** `POST /internal/stock/reservations/{orderId}/release` — Hoàn kho khi hủy đơn.
-  - **C5:** `GET /internal/ai/products?offset=0&limit=50` — Cung cấp dữ liệu sản phẩm active cho AI RAG.
+## API chính
 
-### B. Order Service (`:8082`)
-- **Public (Xác thực bằng `X-Checkout-Key` ngẫu nhiên cho mỗi đơn):**
-  - **P1:** `POST /api/orders` — Tạo đơn hàng mới (gọi C1 lấy giá -> lưu PENDING -> gọi C2 giữ kho -> CONFIRMED).
-  - **P2:** `GET /api/orders/{id}` — Tra cứu trạng thái đơn hàng.
-  - **P3:** `POST /api/orders/{id}/cancel` — Hủy đơn đã xác nhận (gọi C4 hoàn kho -> CANCELLED).
+| Service | API |
+|---|---|
+| Catalog | C1 `POST /internal/catalog/quote`; C2/C3/C4 `/internal/stock/reservations`; C5 `GET /internal/ai/products`. |
+| Order | `POST /api/orders`; `GET /api/orders/{id}`; `POST /api/orders/{id}/pay`; `POST /api/orders/{id}/cancel`. |
+| Payment | `POST /internal/payments`; `GET /internal/payments/{orderId}`; `POST /internal/payments/{orderId}/refund`. |
+| Shipping | `POST /internal/shipments`; `GET /internal/shipments/{orderId}`; `POST /internal/shipments/{orderId}/cancel`. |
+| Notification | `POST /internal/notifications`; `GET /internal/notifications/{orderId}`. |
+| AI RAG | `POST /api/chat`; `POST /api/admin/knowledge/documents`; `POST /api/admin/knowledge/reindex`. |
 
-### C. AI RAG Service (`:8083`)
-- **Public:**
-  - **A1:** `POST /api/chat` — Trợ lý RAG tư vấn (vector search top-4, sinh câu trả lời kèm nguồn `FAQ`/`PRODUCT`, từ chối câu hỏi giá/tồn kho realtime hoặc thiếu ngữ cảnh).
-  - `GET /api/ping` & `GET /q/health` — Kiểm tra liveness và readiness.
-- **Admin (`X-Admin-Key`):**
-  - **A2:** `POST /api/admin/knowledge/documents` — Quản lý tài liệu FAQ và chính sách.
-  - **A3:** `POST /api/admin/knowledge/reindex` — Kích hoạt quét C5 Catalog và tái lập chỉ mục vector pgvector.
+Payment, shipment và notification là mô phỏng có trạng thái bền vững trong database.
+Chúng không gọi cổng thanh toán, hãng vận chuyển hoặc SMTP thật.
 
----
+## Chạy bằng Docker Compose
 
-## 4. Hướng dẫn khởi chạy toàn bộ hệ thống bằng Docker Compose
-
-### Bước 1: Thiết lập cấu hình
 ```powershell
-# Tạo file biến môi trường từ mẫu
 Copy-Item .env.example .env
-
-# Sửa các secret và điền OPENAI_API_KEY
-notepad .env
-```
-
-### Bước 2: Đóng gói các service
-```powershell
-# 1. Catalog Service
-cd catalog-service; .\mvnw.cmd clean package -DskipTests; cd ..
-
-# 2. AI RAG Service
-cd ai-rag-service; .\mvnw.cmd clean package -DskipTests; cd ..
-
-# 3. Order Service (khi hoàn thành)
-# cd order-service; .\mvnw.cmd clean package -DskipTests; cd ..
-```
-
-### Bước 3: Khởi chạy 6 containers
-```powershell
+# Điền password database, INTERNAL_API_KEY, ADMIN_API_KEY và GEMINI_API_KEY.
 docker compose up -d --build
 docker compose ps
 ```
 
-Kiểm tra trạng thái sẵn sàng của các service:
-- Catalog Health: `Invoke-RestMethod http://localhost:8081/q/health`
-- Order Health: `Invoke-RestMethod http://localhost:8082/q/health`
-- AI RAG Health: `Invoke-RestMethod http://localhost:8083/q/health`
+Kiểm tra health tại `http://localhost:8081/q/health` đến `http://localhost:8086/q/health`.
+Compose tự build image từ thư mục service, vì vậy cần package các module trước:
 
----
+```powershell
+.\catalog-service\mvnw.cmd -f .\order-service\pom.xml -DskipTests package
+.\catalog-service\mvnw.cmd -f .\payment-service\pom.xml -DskipTests package
+.\catalog-service\mvnw.cmd -f .\shipping-service\pom.xml -DskipTests package
+.\catalog-service\mvnw.cmd -f .\notification-service\pom.xml -DskipTests package
+```
 
-## 5. Kiểm thử độc lập từng service
-
-Mỗi service đều có thể chạy và kiểm thử độc lập mà không cần chờ các service khác:
-- **`catalog-service`:** Xem chi tiết tại [catalog-service/README.md](file:///D:/University/5/HDV/BTL/catalog-service/README.md) (`.\mvnw.cmd test`).
-- **`ai-rag-service`:** Xem chi tiết tại [ai-rag-service/README.md](file:///D:/University/5/HDV/BTL/ai-rag-service/README.md) (`.\mvnw.cmd test` - 23 unit tests).
+Maven Wrapper có sẵn tại `catalog-service` và dùng chung phiên bản Quarkus cho các module mới.
